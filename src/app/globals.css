@@ -24,3 +24,85 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Custom animations for the Mafia game */
+@keyframes subtle-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px) rotate(-1deg); }
+  75% { transform: translateX(2px) rotate(1deg); }
+}
+
+@keyframes float-up {
+  0% {
+    transform: translateY(20px) scale(0.8);
+    opacity: 0;
+  }
+  50% {
+    transform: translateY(-5px) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes dramatic-entrance {
+  0% {
+    transform: translateX(-100px) rotate(-10deg) scale(0.5);
+    opacity: 0;
+    filter: blur(5px);
+  }
+  60% {
+    transform: translateX(10px) rotate(2deg) scale(1.1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+  100% {
+    transform: translateX(0) rotate(0deg) scale(1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+}
+
+@keyframes death-fade {
+  0% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    transform: scale(1.1) rotate(-5deg);
+    filter: brightness(0.5) saturate(0.3);
+  }
+  100% {
+    transform: scale(0.95) rotate(-2deg);
+    filter: brightness(0.3) saturate(0.1) grayscale(1);
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(0.8) rotate(0deg);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+.animate-float-up {
+  animation: float-up 0.6s ease-out;
+}
+
+.animate-dramatic-entrance {
+  animation: dramatic-entrance 0.8s ease-out;
+}
+
+.animate-death-fade {
+  animation: death-fade 1s ease-in-out;
+}
+
+.animate-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}

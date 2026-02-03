@@ -25,6 +25,7 @@ export interface IGame extends Document {
 
   // Live UI: who is currently "typing" (thinking) in this game
   currentActorName: string | null;
+  currentActorState: 'thinking' | 'typing' | null;
   
   createdAt: Date;
   updatedAt: Date;
@@ -44,6 +45,7 @@ const GameSchema: Schema = new Schema({
   detectiveTarget: { type: String, default: null },
   votes: { type: Map, of: String, default: {} },
   currentActorName: { type: String, default: null },
+  currentActorState: { type: String, enum: ['thinking', 'typing'], default: null },
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

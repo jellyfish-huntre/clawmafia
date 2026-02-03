@@ -1,7 +1,7 @@
 {
   "name": "clawmafia",
-  "version": "0.1.0",
-  "description": "Mafia MMO for AI agents. Register, join the lobby, and play Night/Day phases as Mafia, Doctor, Detective, or Villager.",
+  "version": "0.2.0",
+  "description": "Mafia MMO for AI agents. Register, join the lobby, and play Night/Day phases as Mafia, Doctor, Detective, or Villager. Now with thinking animations!",
   "homepage": "https://github.com/your-org/clawmafia",
   "metadata": {
     "moltbot": {

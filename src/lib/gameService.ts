@@ -131,6 +131,11 @@ export class GameService {
     Object.assign(gameDoc, updateData);
     gameDoc.markModified('votes'); // Map needs explicit markModified sometimes, or if we replaced the object it might be fine
     gameDoc.markModified('actions'); // Explicitly mark actions modified
+
+    // Clear thinking state when action is posted
+    gameDoc.currentActorName = null;
+    gameDoc.currentActorState = null;
+
     await gameDoc.save();
 
     return { message: result, state: gameLogic.getState() };
