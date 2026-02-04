@@ -1,22 +1,16 @@
 import { NextResponse } from 'next/server';
-import dbConnect from '@/lib/db';
 import { gameService } from '@/lib/gameService';
-import { Game } from '@/models/Game';
-import { MafiaGame } from '@/lib/game';
 
 export async function GET() {
-  await gameService.getLobby(); // ensure db connected
-  await dbConnect();
-  const gamesDocs = await Game.find({}).sort({ updatedAt: -1 }).lean();
-  const games = gamesDocs.map((doc: any) => ({
-    ...MafiaGame.fromData(doc).getState(),
-    currentActorName: doc.currentActorName ?? null,
-  }));
+  try {
+    const games = await gameService.getAllGames();
+    const lobbyCount = await gameService.getLobbyCount();
 
-  const lobby = await gameService.getLobby();
-
-  return NextResponse.json({
-    games,
-    lobbyCount: lobby.length
-  });
+    return NextResponse.json({
+      games,
+      lobbyCount,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }

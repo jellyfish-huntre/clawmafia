@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import dbConnect from '@/lib/db';
-import { Game } from '@/models/Game';
-import { User } from '@/models/User';
+import { getSupabase } from '@/lib/supabase';
+import { gameService } from '@/lib/gameService';
 
 export async function POST(req: Request) {
   try {
@@ -11,35 +10,29 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { state } = body; // 'thinking', 'typing', or null to clear
+    const { state } = body;
 
-    // Validate state
-    if (state && !['thinking', 'typing'].includes(state)) {
-      return NextResponse.json({ error: 'state must be "thinking", "typing", or null' }, { status: 400 });
+    if (state && !['thinking', 'coding'].includes(state)) {
+      return NextResponse.json({ error: 'state must be "thinking", "coding", or null' }, { status: 400 });
     }
 
-    await dbConnect();
-
-    // Find the user and their current game
-    const user = await User.findOne({ apiKey });
-    if (!user || !user.currentGameId) {
+    const user = await gameService.getUser(apiKey);
+    if (!user || !user.current_game_id) {
       return NextResponse.json({ error: 'Not in a game' }, { status: 400 });
     }
 
-    // Update the game with the thinking state
-    await Game.findByIdAndUpdate(user.currentGameId, {
-      $set: {
-        currentActorName: state ? user.name : null,
-        currentActorState: state
-      },
-      $currentDate: { updatedAt: true },
-    });
+    const supabase = getSupabase();
+    await supabase.from('games').update({
+      current_actor_name: state ? user.name : null,
+      current_actor_state: state || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', user.current_game_id);
 
     return NextResponse.json({
       ok: true,
       message: state
         ? `${user.name} is now ${state}`
-        : 'Thinking state cleared'
+        : 'Thinking state cleared',
     });
   } catch (e) {
     console.error('thinking state update failed', e);

@@ -2,31 +2,83 @@
 
 import { useEffect, useState, useRef } from "react";
 
-type Player = {
+type GridCell = {
+  x: number;
+  y: number;
+  type: string;
+  active: boolean;
+  spawnedAt?: number;
+  expiresAt?: number;
+};
+
+type AgentInfo = {
   id: string;
   name: string;
-  role: string | null;
-  isAlive: boolean;
+  x: number;
+  y: number;
+  state: string;
+  commits: number;
+  hasHeadphones: boolean;
+  coffeeTime: number;
+  forcePushCount: number;
+};
+
+type GameEvent = {
+  agentId: string;
+  agentName: string;
+  action: string;
+  detail: string;
+  tick: number;
+  timestamp: string;
 };
 
 type GameState = {
   id: string;
   phase: string;
-  players: Player[];
-  dayCount: number;
-  winner: string | null;
+  subPhase: string;
+  tickCount: number;
+  maxTicks: number;
+  timeRemainingPercent: number;
+  featureProgress: number;
+  totalCommits: number;
+  targetCommits: number;
+  outcome: string | null;
+  grid: GridCell[][];
+  agents: AgentInfo[];
   logs: string[];
+  events: GameEvent[];
   currentActorName?: string | null;
-  actions?: {
-    playerId: string;
-    playerName: string;
-    action: string;
-    targetId?: string;
-    reason?: string;
-    phase: string;
-    day: number;
-    timestamp: string;
-  }[];
+  currentActorState?: string | null;
+};
+
+const CELL_ICONS: Record<string, string> = {
+  repo: "G",
+  coffee_station: "C",
+  supabase_node: "S",
+  mongodb_node: "M",
+  pizza: "P",
+  energy_drink: "E",
+  headphones: "H",
+  empty: "",
+};
+
+const CELL_COLORS: Record<string, string> = {
+  repo: "bg-green-800 border-green-600",
+  coffee_station: "bg-amber-900 border-amber-700",
+  supabase_node: "bg-teal-800 border-teal-600",
+  mongodb_node: "bg-emerald-800 border-emerald-600",
+  pizza: "bg-yellow-700 border-yellow-500",
+  energy_drink: "bg-blue-700 border-blue-500",
+  headphones: "bg-purple-700 border-purple-500",
+  empty: "bg-slate-900/50 border-slate-800/50",
+};
+
+const STATE_COLORS: Record<string, string> = {
+  coding: "border-green-400 bg-green-900/40",
+  distracted: "border-yellow-400 bg-yellow-900/40",
+  panicking: "border-red-400 bg-red-900/40",
+  merge_conflict: "border-gray-400 bg-gray-900/40",
+  idle: "border-slate-400 bg-slate-900/40",
 };
 
 function useBaseUrl() {
@@ -41,6 +93,7 @@ export default function Home() {
   const [games, setGames] = useState<GameState[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [lobbyCount, setLobbyCount] = useState<number>(0);
+  const [envAction, setEnvAction] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const baseUrl = useBaseUrl();
 
@@ -63,7 +116,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [games]);
@@ -82,110 +134,173 @@ export default function Home() {
     }
   }, [games, selectedGameId]);
 
+  const handleGridClick = async (x: number, y: number) => {
+    if (!envAction || !selectedGame) return;
+
+    try {
+      await fetch("/api/game/environment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId: selectedGame.id, action: envAction, x, y }),
+      });
+    } catch (e) {
+      console.error("Environment action failed", e);
+    }
+    setEnvAction(null);
+  };
+
+  const handleServerCrash = async () => {
+    if (!selectedGame) return;
+    try {
+      await fetch("/api/game/environment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId: selectedGame.id, action: "server_crash" }),
+      });
+    } catch (e) {
+      console.error("Server crash failed", e);
+    }
+  };
+
+  const getAgentAt = (x: number, y: number): AgentInfo | undefined => {
+    return selectedGame?.agents.find((a) => a.x === x && a.y === y);
+  };
+
+  const timePercent = selectedGame?.timeRemainingPercent ?? 100;
+  const isCrunchTime = selectedGame?.subPhase === "CRUNCH_TIME";
+
   return (
     <main className="h-screen w-screen bg-slate-950 text-slate-200 font-sans flex overflow-hidden">
-      {/* LEFT SIDEBAR: CONTROLS & GAMES LIST */}
+      {/* Panic strobe overlay */}
+      {isCrunchTime && selectedGame?.phase === "HACKING" && (
+        <div className="fixed inset-0 z-50 pointer-events-none bg-red-500 animate-panic-strobe" />
+      )}
+
+      {/* LEFT SIDEBAR */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
         <div className="p-4 border-b border-slate-800">
-          <h1 className="text-xl font-bold text-slate-100 tracking-wider">
-            MAFIA MMO
-          </h1>
+          <h1 className="text-lg font-bold text-slate-100 tracking-wider">CRUNCH TIME</h1>
           <div className="flex items-center justify-between mt-1">
-            <span className="text-xs text-slate-500">Admin Dashboard</span>
+            <span className="text-[10px] text-slate-500">Ghost-Commit Simulator</span>
             <button
               type="button"
               onClick={resetSystem}
               className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
             >
-              Reset system
+              Reset
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-6">
-            <h2 className="text-xs font-bold text-slate-500 uppercase mb-3">
-              Lobby ({lobbyCount})
-            </h2>
+          {/* Lobby */}
+          <div className="mb-4">
+            <h2 className="text-xs font-bold text-slate-500 uppercase mb-2">Lobby ({lobbyCount})</h2>
             <div className="bg-slate-800/50 rounded p-3 text-center border border-slate-800 border-dashed">
-              <span className="text-2xl font-mono text-slate-400">
-                {lobbyCount}
-              </span>
-              <div className="text-[10px] text-slate-600">
-                Waiting for players
-              </div>
+              <span className="text-2xl font-mono text-slate-400">{lobbyCount}</span>
+              <div className="text-[10px] text-slate-600">Waiting (3 to start)</div>
             </div>
           </div>
 
-          <h2 className="text-xs font-bold text-slate-500 uppercase mb-3">
-            Active Games ({games.length})
-          </h2>
-          <div className="space-y-2">
-            {games.map((game, index) => (
+          {/* Games List */}
+          <h2 className="text-xs font-bold text-slate-500 uppercase mb-2">Games ({games.length})</h2>
+          <div className="space-y-2 mb-4">
+            {games.map((game) => (
               <div
                 key={game.id}
                 onClick={() => setSelectedGameId(game.id)}
-                className={`relative group p-3 rounded-lg cursor-pointer transition-all duration-300 border overflow-hidden animate-in fade-in slide-in-from-left-4 ${
+                className={`p-3 rounded-lg cursor-pointer transition-all border ${
                   selectedGameId === game.id
-                    ? "bg-blue-900/40 border-blue-500/60 shadow-lg shadow-blue-500/30 scale-105 transform"
-                    : "bg-slate-800 border-slate-700 hover:border-blue-400/50 hover:bg-slate-750 hover:shadow-lg hover:shadow-blue-500/10 hover:scale-102 hover:-translate-y-1"
+                    ? "bg-blue-900/40 border-blue-500/60 shadow-lg shadow-blue-500/20"
+                    : "bg-slate-800 border-slate-700 hover:border-blue-400/50"
                 }`}
-                style={{
-                  animationDelay: `${index * 100}ms`
-                }}
               >
-                {/* Subtle gradient overlay on hover */}
-                <div className={`absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-300 ${
-                  game.phase === "DAY"
-                    ? "bg-gradient-to-r from-amber-400/20 to-orange-500/20"
-                    : game.phase === "NIGHT"
-                    ? "bg-gradient-to-r from-indigo-500/20 to-purple-600/20"
-                    : "bg-gradient-to-r from-slate-500/20 to-gray-600/20"
-                }`} />
-
-                {/* Sparkle effect for selected card */}
-                {selectedGameId === game.id && (
-                  <div className="absolute top-1 right-1 w-2 h-2 bg-blue-400 rounded-full animate-sparkle" />
-                )}
-                <div className="flex justify-between items-center mb-1 relative z-10">
-                  <span className="font-bold text-xs text-slate-300 truncate w-20 group-hover:text-white transition-colors duration-300">
-                    #{game.id.slice(-4)}
-                  </span>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="font-bold text-xs text-slate-300">#{game.id.slice(-4)}</span>
                   <span
-                    className={`text-[10px] px-2 py-1 rounded-full font-medium transition-all duration-300 flex items-center gap-1 ${
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       game.phase === "GAME_OVER"
-                        ? "bg-slate-700 text-slate-400 group-hover:bg-slate-600"
-                        : game.phase === "NIGHT"
-                          ? "bg-indigo-900 text-indigo-300 group-hover:bg-indigo-800 group-hover:text-indigo-200 group-hover:shadow-lg group-hover:shadow-indigo-500/30"
-                          : "bg-amber-900/50 text-amber-300 group-hover:bg-amber-800 group-hover:text-amber-200 group-hover:shadow-lg group-hover:shadow-amber-500/30"
+                        ? "bg-slate-700 text-slate-400"
+                        : game.subPhase === "CRUNCH_TIME"
+                        ? "bg-red-900 text-red-300"
+                        : "bg-green-900 text-green-300"
                     }`}
                   >
-                    {game.phase === "DAY" && "☀️"}
-                    {game.phase === "NIGHT" && "🌙"}
-                    {game.phase === "GAME_OVER" && "🏁"}
-                    {game.phase}
+                    {game.phase === "GAME_OVER" ? (game.outcome === "WIN" ? "WON" : "LOST") : game.subPhase === "CRUNCH_TIME" ? "CRUNCH" : "HACKING"}
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-500 flex justify-between">
-                  <span>Day {game.dayCount}</span>
-                  <span>{game.players.length} Players</span>
+                  <span>{Math.round(game.featureProgress)}% done</span>
+                  <span>{game.agents.length} devs</span>
                 </div>
+                {game.phase === "HACKING" && (
+                  <div className="mt-1 h-1 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full transition-all"
+                      style={{ width: `${game.featureProgress}%` }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
             {games.length === 0 && (
-              <div className="text-slate-600 text-sm italic text-center py-4">
-                No active games
-              </div>
+              <div className="text-slate-600 text-sm italic text-center py-4">No active games</div>
             )}
           </div>
 
-          {/* Agent connection card */}
-          <div className="mt-6 p-4 rounded-xl bg-gradient-to-br from-slate-800/80 to-slate-900/80 border border-slate-700 hover:border-emerald-500/30 transition-all duration-500 group hover:shadow-lg hover:shadow-emerald-500/10 animate-in fade-in slide-in-from-bottom-4 hover:scale-105">
-            <h2 className="text-sm font-bold text-slate-100 mb-3 text-center group-hover:text-emerald-200 transition-colors duration-300">
-              Connect Your AI Agent to Clawmafia 🃏✨
-            </h2>
-            <div className="rounded-lg bg-slate-900 border border-slate-700 p-3 mb-4">
-              <p className="text-xs text-emerald-400 font-mono break-all leading-relaxed">
+          {/* Environment Controls */}
+          {selectedGame && selectedGame.phase === "HACKING" && (
+            <div className="mb-4">
+              <h2 className="text-xs font-bold text-slate-500 uppercase mb-2">Environment</h2>
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => setEnvAction(envAction === "place_headphones" ? null : "place_headphones")}
+                  className={`w-full text-xs p-2 rounded border transition-all ${
+                    envAction === "place_headphones"
+                      ? "bg-purple-900 border-purple-500 text-purple-200"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500/50"
+                  }`}
+                >
+                  H Headphones
+                </button>
+                <button
+                  onClick={handleServerCrash}
+                  className="w-full text-xs p-2 rounded border bg-slate-800 border-slate-700 text-slate-400 hover:border-red-500/50 hover:text-red-300"
+                >
+                  ! Server Crash
+                </button>
+                <button
+                  onClick={() => setEnvAction(envAction === "place_pizza" ? null : "place_pizza")}
+                  className={`w-full text-xs p-2 rounded border transition-all ${
+                    envAction === "place_pizza"
+                      ? "bg-yellow-900 border-yellow-500 text-yellow-200"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-yellow-500/50"
+                  }`}
+                >
+                  P Drop Pizza
+                </button>
+                <button
+                  onClick={() => setEnvAction(envAction === "place_energy_drink" ? null : "place_energy_drink")}
+                  className={`w-full text-xs p-2 rounded border transition-all ${
+                    envAction === "place_energy_drink"
+                      ? "bg-blue-900 border-blue-500 text-blue-200"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-blue-500/50"
+                  }`}
+                >
+                  E Energy Drink
+                </button>
+              </div>
+              {envAction && (
+                <div className="mt-2 text-[10px] text-amber-400 text-center">Click a grid cell to place</div>
+              )}
+            </div>
+          )}
+
+          {/* Agent Connection Card */}
+          <div className="p-3 rounded-lg bg-slate-800/80 border border-slate-700">
+            <h2 className="text-xs font-bold text-slate-200 mb-2">Connect Your Agent</h2>
+            <div className="rounded bg-slate-900 border border-slate-700 p-2 mb-2">
+              <p className="text-[10px] text-emerald-400 font-mono break-all leading-relaxed">
                 {baseUrl ? (
                   <>
                     Read{" "}
@@ -196,18 +311,17 @@ export default function Home() {
                       className="underline hover:text-emerald-300"
                     >
                       {baseUrl}/skill.md
-                    </a>{" "}
-                    and follow the instructions to join and play.
+                    </a>
                   </>
                 ) : (
                   "Loading..."
                 )}
               </p>
             </div>
-            <ol className="space-y-1.5 text-xs text-amber-400/90 font-medium list-decimal list-inside">
-              <li>Send this to your agent</li>
-              <li>Agent registers &amp; joins the lobby</li>
-              <li>Game starts when 4 players are in</li>
+            <ol className="space-y-1 text-[10px] text-amber-400/90 list-decimal list-inside">
+              <li>Send skill.md to your agent</li>
+              <li>Agent registers and joins lobby</li>
+              <li>Game starts with 3+ agents</li>
             </ol>
           </div>
         </div>
@@ -215,433 +329,294 @@ export default function Home() {
 
       {/* CENTER: GAME BOARD */}
       <section className="flex-1 bg-slate-950 flex flex-col relative overflow-hidden">
-        {/* Animated Background Particles */}
-        <div className="absolute inset-0 pointer-events-none">
-          {selectedGame?.phase === 'DAY' && (
-            <div className="absolute inset-0 bg-gradient-to-b from-amber-950/5 to-transparent">
-              {/* Day particles - floating golden motes */}
-              {Array.from({ length: 12 }, (_, i) => (
-                <div
-                  key={`day-${i}`}
-                  className="absolute w-1 h-1 bg-amber-400/30 rounded-full animate-pulse"
-                  style={{
-                    left: `${Math.random() * 100}%`,
-                    top: `${Math.random() * 100}%`,
-                    animationDelay: `${Math.random() * 3}s`,
-                    animationDuration: `${2 + Math.random() * 4}s`,
-                    transform: `translateY(${Math.sin(i) * 20}px) scale(${0.5 + Math.random() * 0.5})`
-                  }}
-                />
-              ))}
-            </div>
-          )}
-          {selectedGame?.phase === 'NIGHT' && (
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-950/10 to-slate-950/50">
-              {/* Night particles - twinkling stars */}
-              {Array.from({ length: 8 }, (_, i) => (
-                <div
-                  key={`night-${i}`}
-                  className="absolute w-0.5 h-0.5 bg-indigo-300/50 rounded-full animate-ping"
-                  style={{
-                    left: `${Math.random() * 100}%`,
-                    top: `${Math.random() * 60}%`,
-                    animationDelay: `${Math.random() * 5}s`,
-                    animationDuration: `${3 + Math.random() * 3}s`,
-                  }}
-                />
-              ))}
-              {/* Floating ghostly wisps */}
-              {Array.from({ length: 6 }, (_, i) => (
-                <div
-                  key={`wisp-${i}`}
-                  className="absolute w-2 h-2 bg-purple-500/10 rounded-full blur-sm animate-bounce"
-                  style={{
-                    left: `${Math.random() * 100}%`,
-                    top: `${20 + Math.random() * 60}%`,
-                    animationDelay: `${Math.random() * 4}s`,
-                    animationDuration: `${4 + Math.random() * 2}s`,
-                    transform: `translateX(${Math.sin(i * 2) * 30}px)`
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Game Over Overlay */}
         {selectedGame?.phase === "GAME_OVER" && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/95 backdrop-blur-md transition-opacity duration-500">
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/95 backdrop-blur-md">
             <div className="text-center px-8">
-              <div className="text-6xl md:text-8xl font-black tracking-tighter mb-4 bg-clip-text text-transparent bg-linear-to-r from-amber-400 via-red-500 to-amber-400">
-                {selectedGame.winner === "MAFIA"
-                  ? "MAFIA WINS"
-                  : "VILLAGERS WIN"}
+              <div
+                className={`text-5xl md:text-7xl font-black tracking-tighter mb-4 ${
+                  selectedGame.outcome === "WIN" ? "text-green-400" : "text-red-400"
+                }`}
+              >
+                {selectedGame.outcome === "WIN" ? "SHIPPED!" : selectedGame.outcome === "TIMEOUT" ? "TIME'S UP" : selectedGame.outcome === "MERGE_CONFLICT" ? "MERGE HELL" : "COFFEE COMA"}
               </div>
-              <p className="text-slate-400 text-lg mb-8">
-                {selectedGame.winner === "MAFIA"
-                  ? "The town has fallen."
-                  : "The town is safe."}
+              <p className="text-slate-400 text-lg mb-4">
+                {selectedGame.outcome === "WIN"
+                  ? "Feature complete. The demo was a success!"
+                  : selectedGame.outcome === "TIMEOUT"
+                  ? "The hackathon ended. The demo crashed."
+                  : selectedGame.outcome === "MERGE_CONFLICT"
+                  ? "Everyone is stuck resolving conflicts."
+                  : "The whole team is at the coffee station."}
               </p>
-              <div className="flex justify-center gap-4">
-                <span className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500 animate-pulse" />
-                <span
-                  className="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-500 animate-pulse"
-                  style={{ animationDelay: "200ms" }}
-                />
-                <span
-                  className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500 animate-pulse"
-                  style={{ animationDelay: "400ms" }}
-                />
+              <div className="text-slate-500 text-sm">
+                {selectedGame.totalCommits} commits | {Math.round(selectedGame.featureProgress)}% complete
               </div>
             </div>
           </div>
         )}
+
         {selectedGame ? (
           <>
-            {/* Game Header with Phase Animation */}
-            <div className={`h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/50 backdrop-blur-sm z-10 transition-all duration-1000 ${
-              selectedGame.phase === 'DAY' ? 'shadow-amber-900/20' : selectedGame.phase === 'NIGHT' ? 'shadow-indigo-900/30' : ''
-            }`}>
-              <div>
-                <h2 className="text-lg font-bold text-slate-200 animate-in slide-in-from-left-3 duration-500">
-                  Game #{selectedGame.id.slice(0, 8)}...
-                </h2>
-                <div className="flex gap-3 text-xs text-slate-400">
-                  <span className="flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-700">
-                    {/* Enhanced phase indicator */}
-                    <div className="relative">
-                      <span
-                        className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] font-bold transition-all duration-500 ${
-                          selectedGame.phase === "DAY"
-                            ? "bg-amber-400 text-amber-900 shadow-lg shadow-amber-400/50 animate-pulse"
-                            : selectedGame.phase === "NIGHT"
-                            ? "bg-indigo-500 text-indigo-100 shadow-lg shadow-indigo-500/50 animate-pulse"
-                            : "bg-slate-500"
-                        }`}
-                      >
-                        {selectedGame.phase === "DAY" ? "☀" : selectedGame.phase === "NIGHT" ? "🌙" : "⏸"}
-                      </span>
-                      {/* Animated ring around phase indicator */}
-                      {selectedGame.phase !== "GAME_OVER" && (
-                        <span
-                          className={`absolute inset-0 rounded-full animate-ping ${
-                            selectedGame.phase === "DAY" ? "bg-amber-400/30" : "bg-indigo-500/30"
-                          }`}
-                        />
-                      )}
-                    </div>
-                    <span className={`font-medium transition-colors duration-500 ${
-                      selectedGame.phase === "DAY" ? "text-amber-300" : selectedGame.phase === "NIGHT" ? "text-indigo-300" : "text-slate-400"
-                    }`}>
-                      {selectedGame.phase} {selectedGame.dayCount}
-                    </span>
+            {/* Header Bar */}
+            <div className="h-auto border-b border-slate-800 px-6 py-3 bg-slate-900/50 backdrop-blur-sm z-10">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-200">
+                    Game #{selectedGame.id.slice(0, 8)}
+                  </h2>
+                  <span
+                    className={`text-[10px] font-medium ${
+                      isCrunchTime ? "text-red-400" : selectedGame.phase === "HACKING" ? "text-green-400" : "text-slate-400"
+                    }`}
+                  >
+                    {selectedGame.phase === "HACKING" ? (isCrunchTime ? "CRUNCH TIME" : "HACKING") : selectedGame.phase}
                   </span>
-                  {selectedGame.winner && (
-                    <span className="text-emerald-400 font-bold animate-in zoom-in duration-1000 animate-bounce">
-                      🏆 Winner: {selectedGame.winner}
-                    </span>
-                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-slate-400">
+                    Tick {selectedGame.tickCount}/{selectedGame.maxTicks}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {selectedGame.totalCommits}/{selectedGame.targetCommits} commits
+                  </div>
+                </div>
+              </div>
+
+              {/* Deadline Timer */}
+              <div className="mb-2">
+                <div className="flex justify-between text-[10px] mb-0.5">
+                  <span className="text-slate-500">Deadline</span>
+                  <span className={isCrunchTime ? "text-red-400 font-bold animate-countdown-pulse" : "text-slate-400"}>
+                    {Math.round(timePercent)}%
+                  </span>
+                </div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      isCrunchTime ? "bg-red-500" : timePercent < 30 ? "bg-amber-500" : "bg-blue-500"
+                    }`}
+                    style={{ width: `${timePercent}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Feature Progress */}
+              <div>
+                <div className="flex justify-between text-[10px] mb-0.5">
+                  <span className="text-slate-500">Feature Progress</span>
+                  <span className="text-green-400 font-bold">{Math.round(selectedGame.featureProgress)}%</span>
+                </div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full transition-all duration-500"
+                    style={{ width: `${selectedGame.featureProgress}%` }}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Players Grid */}
-            <div className="flex-1 p-8 overflow-y-auto">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
-                {selectedGame.players.map((p, index) => (
-                  <div
-                    key={p.id}
-                    className={`relative group p-4 rounded-xl border-2 transition-all duration-500 cursor-pointer animate-in fade-in slide-in-from-bottom-4 ${
-                      !p.isAlive
-                        ? "bg-slate-900/50 border-slate-800 opacity-60 grayscale hover:opacity-40 hover:scale-95 hover:rotate-1"
-                        : "bg-slate-800 border-slate-700 hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-500/20 hover:-translate-y-2 hover:scale-105 hover:bg-slate-750"
-                    }`}
-                    style={{
-                      animationDelay: `${index * 100}ms`,
-                      transformOrigin: 'center center'
-                    }}
-                    onMouseEnter={() => {
-                      // Add a subtle shake effect on hover for alive players
-                      if (p.isAlive) {
-                        const element = document.getElementById(`player-${p.id}`);
-                        if (element) {
-                          element.style.animation = 'none';
-                          element.offsetHeight; // Trigger reflow
-                          element.style.animation = 'subtle-shake 0.5s ease-in-out';
-                        }
-                      }
-                    }}
-                    id={`player-${p.id}`}
-                  >
-                    {/* Glow effect for living players */}
-                    {p.isAlive && (
-                      <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-sm" />
-                    )}
+            {/* Grid */}
+            <div className="flex-1 p-4 overflow-auto flex items-center justify-center">
+              <div
+                className="inline-grid gap-[2px]"
+                style={{
+                  gridTemplateColumns: `repeat(${selectedGame.grid[0]?.length || 20}, 36px)`,
+                  gridTemplateRows: `repeat(${selectedGame.grid.length || 15}, 36px)`,
+                }}
+              >
+                {selectedGame.grid.flatMap((row, rowIdx) =>
+                  row.map((cell, colIdx) => {
+                    const agent = getAgentAt(colIdx, rowIdx);
+                    const isInactive = cell.type === "repo" && !cell.active;
+                    const cellColor = isInactive ? "bg-red-950/50 border-red-900/50" : CELL_COLORS[cell.type] || CELL_COLORS.empty;
 
-                    {/* Death effect overlay */}
-                    {!p.isAlive && (
-                      <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-red-900/20 to-gray-900/50 opacity-80" />
-                    )}
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="relative">
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold transition-all duration-300 ${
-                            !p.isAlive
-                              ? "bg-slate-800 text-slate-600 group-hover:bg-red-900/50 group-hover:text-red-400"
-                              : "bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-lg group-hover:shadow-blue-500/50 group-hover:shadow-xl group-hover:scale-110"
-                          }`}
-                        >
-                          {p.name.charAt(0)}
-                        </div>
-                        {/* Pulse ring for alive players */}
-                        {p.isAlive && (
-                          <div className="absolute inset-0 rounded-full border-2 border-blue-400/0 group-hover:border-blue-400/50 group-hover:animate-ping transition-all duration-300" />
+                    return (
+                      <div
+                        key={`${rowIdx}-${colIdx}`}
+                        className={`relative w-9 h-9 border rounded-sm flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all hover:brightness-125 ${cellColor} ${
+                          envAction ? "hover:ring-2 hover:ring-amber-400/50" : ""
+                        }`}
+                        onClick={() => envAction && handleGridClick(colIdx, rowIdx)}
+                        title={`(${colIdx},${rowIdx}) ${cell.type}${agent ? ` - ${agent.name}` : ""}`}
+                      >
+                        {/* Cell Icon */}
+                        {cell.type !== "empty" && !agent && (
+                          <span className={`text-xs ${isInactive ? "text-red-400 opacity-50" : "text-slate-300"}`}>
+                            {CELL_ICONS[cell.type]}
+                          </span>
                         )}
-                        {/* Death skull overlay */}
-                        {!p.isAlive && (
-                          <div className="absolute -top-1 -right-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            💀
+
+                        {/* Agent */}
+                        {agent && (
+                          <div
+                            className={`absolute inset-0.5 rounded-sm border-2 flex items-center justify-center text-[9px] font-bold text-white z-10 ${
+                              STATE_COLORS[agent.state] || STATE_COLORS.idle
+                            }`}
+                            title={`${agent.name} [${agent.state}] ${agent.commits} commits`}
+                          >
+                            {agent.name.charAt(0)}
+                            {agent.hasHeadphones && (
+                              <span className="absolute -top-1 -right-1 text-[8px]">H</span>
+                            )}
                           </div>
                         )}
                       </div>
-                      {!p.isAlive && (
-                        <span className="bg-red-900/80 text-red-200 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                          ⚱️ Dead
-                        </span>
-                      )}
-                    </div>
-
-                    <div
-                      className="font-bold text-slate-200 truncate mb-1"
-                      title={p.name}
-                    >
-                      {p.name}
-                    </div>
-                    <div className="text-[10px] font-mono text-slate-500 truncate mb-2">
-                      {p.id}
-                    </div>
-
-                    {p.role ? (
-                      <div
-                        className={`text-xs font-bold uppercase tracking-wider py-1 px-2 rounded text-center transition-all duration-300 group-hover:scale-105 ${
-                          p.role === "MAFIA"
-                            ? "bg-red-950 text-red-400 border border-red-900 group-hover:bg-red-900 group-hover:text-red-200 group-hover:shadow-lg group-hover:shadow-red-500/30"
-                            : p.role === "DOCTOR"
-                              ? "bg-emerald-950 text-emerald-400 border border-emerald-900 group-hover:bg-emerald-900 group-hover:text-emerald-200 group-hover:shadow-lg group-hover:shadow-emerald-500/30"
-                              : p.role === "DETECTIVE"
-                                ? "bg-blue-950 text-blue-400 border border-blue-900 group-hover:bg-blue-900 group-hover:text-blue-200 group-hover:shadow-lg group-hover:shadow-blue-500/30"
-                                : "bg-slate-700 text-slate-300 group-hover:bg-slate-600 group-hover:text-slate-200"
-                        }`}
-                      >
-                        <span className="flex items-center justify-center gap-1">
-                          {p.role === "MAFIA" && "🗡️"}
-                          {p.role === "DOCTOR" && "⚕️"}
-                          {p.role === "DETECTIVE" && "🔍"}
-                          {p.role === "VILLAGER" && "🏘️"}
-                          {p.role}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="text-xs font-bold uppercase tracking-wider py-1 px-2 rounded text-center bg-slate-900 text-slate-600 border border-slate-800 group-hover:bg-slate-800 group-hover:text-slate-500 transition-all duration-300">
-                        ❓ Unknown
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    );
+                  })
+                )}
               </div>
+            </div>
+
+            {/* Agent Legend */}
+            <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/50 flex gap-4 text-[10px] text-slate-500 flex-wrap">
+              <span>G=Repo</span>
+              <span>C=Coffee</span>
+              <span>S=Supabase</span>
+              <span>M=MongoDB</span>
+              <span>P=Pizza</span>
+              <span>E=Energy</span>
+              <span>H=Headphones</span>
+              <span className="text-green-400">Green=Coding</span>
+              <span className="text-yellow-400">Yellow=Distracted</span>
+              <span className="text-red-400">Red=Panicking</span>
+              <span className="text-gray-400">Gray=Conflict</span>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-600 relative">
-            {/* Floating background elements */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              {Array.from({ length: 5 }, (_, i) => (
-                <div
-                  key={`empty-${i}`}
-                  className="absolute w-8 h-8 text-slate-800 animate-bounce opacity-20"
-                  style={{
-                    left: `${20 + i * 20}%`,
-                    top: `${30 + Math.sin(i) * 20}%`,
-                    animationDelay: `${i * 0.5}s`,
-                    animationDuration: `${3 + i * 0.5}s`,
-                  }}
-                >
-                  {['🎭', '🗡️', '⚗️', '🔍', '🏘️'][i]}
-                </div>
-              ))}
-            </div>
-
-            <div className="text-center animate-in fade-in zoom-in duration-1000 relative z-10">
-              <div className="text-6xl mb-4 animate-bounce">🎲</div>
-              <div className="text-lg font-medium text-slate-500 mb-2">Select a game to spectate</div>
-              <div className="text-sm text-slate-600 italic">Watch the drama unfold...</div>
+          <div className="flex-1 flex items-center justify-center text-slate-600">
+            <div className="text-center">
+              <div className="text-5xl mb-4">$</div>
+              <div className="text-lg font-medium text-slate-500 mb-2">Waiting for a hackathon...</div>
+              <div className="text-sm text-slate-600">Connect agents to start coding</div>
             </div>
           </div>
         )}
       </section>
 
-      {/* RIGHT SIDEBAR: CHAT & LOGS */}
-      <aside className="w-96 bg-slate-900 border-l border-slate-800 flex flex-col">
+      {/* RIGHT SIDEBAR */}
+      <aside className="w-80 bg-slate-900 border-l border-slate-800 flex flex-col">
         {selectedGame ? (
           <>
-            <div className="p-4 border-b border-slate-800 bg-slate-900">
-              <h3 className="font-bold text-slate-200 text-sm uppercase tracking-wider">
-                Game Events
-              </h3>
+            {/* Event Feed Header */}
+            <div className="p-3 border-b border-slate-800">
+              <h3 className="font-bold text-slate-200 text-sm uppercase tracking-wider">Events</h3>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-900/50">
-              {/* Combine Logs and Actions into a single feed? For now let's just show actions as chat and logs as system messages if we can interleave them. 
-                        Since we don't have timestamps on logs easily, let's just show the Action Chat as the main feature. */}
-
-              {(!selectedGame.actions || selectedGame.actions.length === 0) && (
-                <div className="text-center py-10 text-slate-600 italic text-sm">
-                  The town is quiet...
+            {/* Event Feed */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {(!selectedGame.events || selectedGame.events.length === 0) && (
+                <div className="text-center py-8 text-slate-600 italic text-sm">
+                  The hackathon is quiet...
                 </div>
               )}
 
-              {selectedGame.actions?.map((action, i) => {
-                const targetName = action.targetId
-                  ? selectedGame.players.find((p) => p.id === action.targetId)
-                      ?.name || action.targetId
-                  : null;
-                const isMafia = action.action === "kill";
-                const isSystem = action.action === "SYSTEM";
+              {selectedGame.events.slice(-50).map((event, i) => {
+                const isSystem = event.action === "SYSTEM";
+                const isForce = event.action === "force_push";
+                const isConflict = event.action === "merge_conflict";
+                const isCommit = event.action === "commit";
 
                 if (isSystem) {
                   return (
-                    <div
-                      key={i}
-                      className="flex justify-center my-4 animate-in fade-in zoom-in duration-700"
-                      style={{ animationDelay: `${i * 150}ms` }}
-                    >
-                      <div className="relative bg-gradient-to-r from-purple-900/40 to-blue-900/40 text-slate-200 text-xs py-2 px-6 rounded-full border border-purple-500/30 shadow-lg backdrop-blur-md hover:scale-105 transition-transform duration-300 cursor-default">
-                        {/* Glowing dots */}
-                        <div className="absolute -left-1 top-1/2 w-2 h-2 bg-purple-400 rounded-full animate-pulse transform -translate-y-1/2" />
-                        <div className="absolute -right-1 top-1/2 w-2 h-2 bg-blue-400 rounded-full animate-pulse transform -translate-y-1/2" style={{ animationDelay: "0.5s" }} />
-
-                        <span className="font-medium">📢 {action.reason}</span>
+                    <div key={i} className="flex justify-center my-1">
+                      <div className="bg-slate-800/80 text-slate-300 text-[10px] py-1 px-3 rounded-full border border-slate-700">
+                        {event.detail}
                       </div>
                     </div>
                   );
                 }
 
                 return (
-                  <div
-                    key={i}
-                    className={`flex flex-col ${
-                      isMafia
-                        ? "animate-dramatic-entrance"
-                        : "animate-float-up"
-                    }`}
-                    style={{
-                      animationDelay: `${i * 100}ms`
-                    }}
-                  >
-                    <div className="flex items-baseline justify-between mb-1 px-1">
+                  <div key={i} className="animate-float-up">
+                    <div className="flex items-baseline justify-between mb-0.5 px-1">
                       <span
-                        className={`text-xs font-bold ${isMafia ? "text-red-400" : "text-blue-400"}`}
+                        className={`text-[10px] font-bold ${
+                          isForce ? "text-red-400" : isConflict ? "text-yellow-400" : isCommit ? "text-green-400" : "text-blue-400"
+                        }`}
                       >
-                        {action.playerName}
+                        {event.agentName}
                       </span>
-                      <span className="text-[10px] text-slate-600 font-mono">
-                        Day {action.day}
-                      </span>
+                      <span className="text-[9px] text-slate-600 font-mono">t{event.tick}</span>
                     </div>
-
                     <div
-                      className={`p-3 rounded-lg rounded-tl-none text-sm relative ${
-                        isMafia
-                          ? "bg-red-950/30 border border-red-900/50 text-red-100"
-                          : "bg-slate-800 border border-slate-700 text-slate-200"
+                      className={`p-2 rounded text-xs ${
+                        isForce
+                          ? "bg-red-950/30 border border-red-900/50 text-red-200"
+                          : isConflict
+                          ? "bg-yellow-950/30 border border-yellow-900/50 text-yellow-200"
+                          : isCommit
+                          ? "bg-green-950/30 border border-green-900/50 text-green-200"
+                          : "bg-slate-800 border border-slate-700 text-slate-300"
                       }`}
                     >
-                      <div className="mb-1 text-[10px] uppercase font-bold opacity-70 flex items-center gap-1">
-                        {action.action}{" "}
-                        {targetName && <span>➝ {targetName}</span>}
-                      </div>
-                      <div className="leading-relaxed opacity-90">
-                        "{action.reason}"
-                      </div>
+                      {event.detail}
                     </div>
                   </div>
                 );
               })}
+
+              {/* Thinking/coding indicator */}
               {selectedGame.currentActorName && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-800 border border-amber-500/30 text-slate-300 text-sm">
-                  {/* Enhanced thinking animation */}
-                  {(selectedGame as any).currentActorState === 'thinking' ? (
-                    <div className="flex items-center gap-1">
-                      {/* Brain/thinking icon with pulse */}
-                      <div className="relative">
-                        <div className="w-4 h-4 rounded-full bg-blue-500 animate-pulse" />
-                        <div className="absolute inset-0 w-4 h-4 rounded-full bg-blue-400 animate-ping opacity-75" />
-                      </div>
-                      {/* Thinking dots with wave animation */}
-                      <span className="flex gap-1 ml-1">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "0ms", animationDuration: "1.4s" }}
-                        />
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "200ms", animationDuration: "1.4s" }}
-                        />
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "400ms", animationDuration: "1.4s" }}
-                        />
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce"
-                          style={{ animationDelay: "600ms", animationDuration: "1.4s" }}
-                        />
-                      </span>
-                    </div>
-                  ) : (
-                    /* Original typing animation */
-                    <span className="flex gap-1">
-                      <span
-                        className="w-2 h-2 rounded-full bg-amber-500 animate-bounce"
-                        style={{ animationDelay: "0ms" }}
-                      />
-                      <span
-                        className="w-2 h-2 rounded-full bg-amber-500 animate-bounce"
-                        style={{ animationDelay: "150ms" }}
-                      />
-                      <span
-                        className="w-2 h-2 rounded-full bg-amber-500 animate-bounce"
-                        style={{ animationDelay: "300ms" }}
-                      />
-                    </span>
-                  )}
-                  <span className="font-medium text-amber-200">
-                    {selectedGame.currentActorName}
+                <div className="flex items-center gap-2 p-2 rounded bg-slate-800 border border-blue-500/30 text-slate-300 text-xs">
+                  <span className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "200ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "400ms" }} />
                   </span>
-                  <span>
-                    {(selectedGame as any).currentActorState === 'thinking' ? ' is thinking...' : ' is typing...'}
-                  </span>
+                  <span className="font-medium text-blue-200">{selectedGame.currentActorName}</span>
+                  <span>is {selectedGame.currentActorState || "thinking"}...</span>
                 </div>
               )}
               <div ref={chatEndRef} />
             </div>
 
-            {/* System Log Drawer (Collapsible or small at bottom) */}
-            <div className="h-32 border-t border-slate-800 bg-black p-2 overflow-y-auto font-mono text-[10px] text-slate-500">
-              <div className="uppercase font-bold text-slate-600 mb-1 sticky top-0 bg-black">
-                System Logs
+            {/* Agent Status Cards */}
+            <div className="border-t border-slate-800 p-3">
+              <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Dev Team</h4>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {selectedGame.agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    className={`p-2 rounded text-xs border ${STATE_COLORS[agent.state] || "border-slate-700 bg-slate-800"}`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-200 truncate">{agent.name}</span>
+                      <span
+                        className={`text-[9px] uppercase font-bold ${
+                          agent.state === "coding" ? "text-green-400" :
+                          agent.state === "distracted" ? "text-yellow-400" :
+                          agent.state === "panicking" ? "text-red-400" :
+                          agent.state === "merge_conflict" ? "text-gray-400" :
+                          "text-slate-500"
+                        }`}
+                      >
+                        {agent.state.replace("_", " ")}
+                      </span>
+                    </div>
+                    <div className="flex gap-3 mt-1 text-[9px] text-slate-500">
+                      <span>{agent.commits} commits</span>
+                      <span>{agent.forcePushCount} force</span>
+                      <span>{agent.coffeeTime}t coffee</span>
+                      {agent.hasHeadphones && <span className="text-purple-400">H</span>}
+                    </div>
+                  </div>
+                ))}
               </div>
-              {selectedGame.logs.map((log, i) => (
-                <div
-                  key={i}
-                  className="mb-0.5 hover:text-slate-300 transition-colors"
-                >
+            </div>
+
+            {/* System Logs */}
+            <div className="h-24 border-t border-slate-800 bg-black p-2 overflow-y-auto font-mono text-[9px] text-slate-500">
+              <div className="uppercase font-bold text-slate-600 mb-1 sticky top-0 bg-black">Logs</div>
+              {selectedGame.logs.slice(-20).map((log, i) => (
+                <div key={i} className="mb-0.5 hover:text-slate-300 transition-colors">
                   {">"} {log}
                 </div>
               ))}
             </div>
           </>
         ) : (
-          <div className="p-8 text-center text-slate-600 text-sm">
-            No game selected
-          </div>
+          <div className="p-8 text-center text-slate-600 text-sm">No game selected</div>
         )}
       </aside>
     </main>

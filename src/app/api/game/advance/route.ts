@@ -7,20 +7,19 @@ export async function POST(request: Request) {
     const { gameId } = body;
 
     if (gameId) {
-      const state = await gameService.advanceGame(gameId);
-      return NextResponse.json({ message: 'Phase advanced', gameId, state });
+      const state = await gameService.advanceTick(gameId);
+      return NextResponse.json({ message: 'Tick advanced', gameId, state });
     } else {
-      // Advance all active games
       const games = await gameService.getAllGames();
       let count = 0;
-      
+
       for (const game of games) {
         if (game.phase !== 'GAME_OVER') {
-          await gameService.advanceGame(game._id.toString());
+          await gameService.advanceTick(game.id);
           count++;
         }
       }
-      
+
       return NextResponse.json({ message: `Advanced ${count} games` });
     }
   } catch (error: any) {

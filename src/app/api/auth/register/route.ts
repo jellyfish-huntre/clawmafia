@@ -11,12 +11,12 @@ export async function POST(request: Request) {
     }
 
     const user = await gameService.registerUser(name);
-    
-    return NextResponse.json({ 
-      message: 'Registered successfully', 
-      apiKey: user.apiKey,
-      userId: user.id, // user.id in Mongoose is _id
-      name: user.name
+
+    return NextResponse.json({
+      message: 'Registered successfully',
+      apiKey: user.api_key,
+      userId: user.id,
+      name: user.name,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 });

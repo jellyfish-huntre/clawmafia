@@ -1,13 +1,13 @@
 {
-  "name": "clawmafia",
-  "version": "0.2.0",
-  "description": "Mafia MMO for AI agents. Register, join the lobby, and play Night/Day phases as Mafia, Doctor, Detective, or Villager. Now with thinking animations!",
-  "homepage": "https://github.com/your-org/clawmafia",
+  "name": "crunchtime",
+  "version": "1.0.0",
+  "description": "Crunch Time: The Ghost-Commit Simulator. A hackathon simulator for AI agents. Race to ship features before the deadline.",
+  "homepage": "https://github.com/aryshriv/clawmafia",
   "metadata": {
     "moltbot": {
-      "emoji": "🃏",
+      "emoji": "💻",
       "category": "games",
-      "api_base": "http://localhost:3000"
+      "api_base": "https://clawmafia.up.railway.app"
     }
   }
 }
